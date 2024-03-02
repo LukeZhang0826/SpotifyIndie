@@ -12,6 +12,47 @@ import genres from './genres'
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
 
+class RequestQueue {
+  constructor(delay) {
+    this.queue = [];
+    this.delay = delay;
+    this.isProcessing = false;
+    this.processingCompleteResolver = null;
+  }
+
+  enqueue(task) {
+    this.queue.push(task);
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
+  }
+
+  async processQueue() {
+    if (this.queue.length > 0) {
+      this.isProcessing = true;
+      const task = this.queue.shift();
+      await task();
+      setTimeout(() => this.processQueue(), this.delay);
+    } else {
+      this.isProcessing = false;
+      if (this.processingCompleteResolver) {
+        this.processingCompleteResolver();
+        this.processingCompleteResolver = null;
+      }
+    }
+  }
+
+  // Call this method to get a promise that resolves when the queue is empty
+  whenEmpty() {
+    if (!this.isProcessing && this.queue.length === 0) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      this.processingCompleteResolver = resolve;
+    });
+  }
+}
+
 function App() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -39,82 +80,59 @@ function App() {
   }, [])
 
   async function fetchLessPopularArtistsFirstAlbums() {
-    if (!accessToken) return; // Ensure access token is available
+    if (!accessToken) return;
   
     let offset = 0;
-    const limit = 50;
-    let hasMore = true;
-    let firstAlbums = [];
-    let popularityThreshold = 30; // Start from a lower popularity threshold
-    const maxPopularity = 70; // Maximum popularity threshold to consider
-    const popularityIncrement = 10; // How much to increase the popularity threshold each time
-  
+    const limit = 50; // Max number of artists to fetch in one request
+    let artistsCollected = []; // Store collected artists here
+    const popularityThreshold = 50; // Only fetch artists with popularity 50 or below
     const headers = { Authorization: `Bearer ${accessToken}` };
+    const requestDelay = 0; // Delay between requests to prevent 429 errors
+    const queue = new RequestQueue(requestDelay);
   
-    let retryDelay = 1000; // Start with a 1 second delay
-    const maxRetries = 3; // Maximum number of retries after hitting rate limit
+    // Keep fetching artists until we have 100 or no more artists meet the criteria
+    while (artistsCollected.length < 100 && offset < 1000) {
+      const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=genre:"${selectedGenre}"&type=artist&limit=${limit}&offset=${offset}&market=${selectedCountry}`, { headers });
   
-    while (hasMore && popularityThreshold <= maxPopularity) {
-      let retries = 0; // Track the number of retries
-      while (retries < maxRetries) {
-        try {
-          const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=genre:"${selectedGenre}"&type=artist&limit=${limit}&offset=${offset}`, { headers });
+      if (searchResponse.status === 429) {
+        console.error('Rate limit exceeded');
+        break; // If rate limited, exit the loop
+      }
   
-          if (searchResponse.status === 429) { // Too Many Requests
-            throw new Error('Rate limit exceeded');
-          }
+      const searchData = await searchResponse.json();
+      let smallArtists = searchData.artists.items.filter(artist => artist.popularity <= popularityThreshold);
   
-          const searchData = await searchResponse.json();
-  
-          let smallArtists = searchData.artists.items.filter(artist => artist.popularity <= popularityThreshold);
-  
-          if (smallArtists.length === 0 && popularityThreshold < maxPopularity) {
-            popularityThreshold += popularityIncrement;
-            continue; // Skip the rest of the loop and try again with a higher popularity threshold
-          }
-  
-          const firstAlbumsPromises = smallArtists.map(async artist => {
-            const albumsResponse = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/albums?market=${selectedCountry}&limit=50`, { headers });
-            if (albumsResponse.status === 429) {
-              throw new Error('Rate limit exceeded');
-            }
-            const albumsData = await albumsResponse.json();
-            const sortedAlbums = albumsData.items.sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
-            return sortedAlbums[0]; // Assuming at least one album is present
-          });
-  
-          const newFirstAlbums = await Promise.all(firstAlbumsPromises);
-          firstAlbums = firstAlbums.concat(newFirstAlbums.filter(album => album));
+      artistsCollected = [...artistsCollected, ...smallArtists.slice(0, 100 - artistsCollected.length)];
+      offset += limit;
 
-          console.log(firstAlbums.length)
+      console.log(artistsCollected.length)
   
-          offset += limit;
-          if (searchData.artists.items.length < limit || firstAlbums.length > 100) {
-            hasMore = false; // Stop if the current batch is smaller than the limit, indicating the end of the list
-          } else if (smallArtists.length > 0) {
-            popularityThreshold = 20;
-          }
-  
-          break; // Exit retry loop on success
-        } catch (error) {
-          if (error.message === 'Rate limit exceeded' && retries < maxRetries) {
-            console.log(`Rate limit exceeded, waiting ${retryDelay}ms before retrying...`);
-            await new Promise(resolve => setTimeout(resolve, retryDelay));
-            retryDelay *= 2; // Exponential backoff
-            retries += 1;
-          } else {
-            throw error; // Rethrow error if not rate limit or max retries reached
-          }
-        }
+      if (artistsCollected.length >= 100 ) {
+        break;
       }
     }
   
-    const uniqueFirstAlbums = Array.from(new Set(firstAlbums.map(album => album.id))).map(id => firstAlbums.find(album => album.id === id));
-    setAlbums(uniqueFirstAlbums.sort((a, b) => new Date(b.release_date) - new Date(a.release_date)));
+    let firstAlbums = [];
+    artistsCollected.forEach(artist => {
+      queue.enqueue(async () => {
+        const albumsResponse = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/albums?market=${selectedCountry}&limit=1&include_groups=album`, { headers });
+        if (albumsResponse.status === 429) {
+          console.error('Rate limit exceeded');
+          return;
+        }
+        const albumsData = await albumsResponse.json();
+        if (albumsData.items.length > 0) {
+          firstAlbums.push(albumsData.items[0]); 
+        }
+      });
+    });
   
-    if (firstAlbums.length === 0) {
-      setNoAlbums(true);
-    }
+    await queue.whenEmpty();
+    firstAlbums.sort((a, b) => {
+      return new Date(b.release_date) - new Date(a.release_date);
+    });
+
+    setAlbums(firstAlbums);
   }
 
   async function search() {
@@ -140,11 +158,13 @@ function App() {
     try {
       const artistResponse = await fetch(artistSearchUrl, parameters);
       const artistData = await artistResponse.json();
+      console.log(artistData)
       if (artistData.artists.items.length > 0) {
         const artistID = artistData.artists.items[0].id;
         const artistAlbumsUrl = `https://api.spotify.com/v1/artists/${artistID}/albums?include_groups=album&market=${selectedCountry}&limit=50`;
         const albumsResponse = await fetch(artistAlbumsUrl, parameters);
         const albumsData = await albumsResponse.json();
+        
         // Store artist's albums separately
         artistAlbums = albumsData.items;
       }
