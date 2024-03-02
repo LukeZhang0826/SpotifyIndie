@@ -237,6 +237,7 @@ function App() {
 
   return (
     <div className="w-full min-h-screen bg-spotify-dark overflow-x-hidden" >
+      <Analytics/>
       <div className={`h-full ${isSidebarOpen ? "w-64" : "w-20"} bg-spotify-dark-gray duration-300 p-4 flex flex-col justify-between fixed opacity-100 z-40`}>
         <div>
           <div className="cursor-pointer flex justify-center" onClick={() => setIsSidebarOpen(!isSidebarOpen)} >
