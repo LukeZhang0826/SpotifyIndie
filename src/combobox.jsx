@@ -3,8 +3,7 @@ import { Combobox, Transition } from '@headlessui/react'
 import { CheckIcon, ChevronUpDownIcon } from '@heroicons/react/20/solid'
 import genres from './genres'
 
-export default function GenreCombobox({setSelectedGenre}) {
-  const [selected, setSelected] = useState(genres[Math.floor(Math.random() * 1380) + 1]);
+export default function GenreCombobox({selected, setSelected, setSelectedGenre}) {
   const [query, setQuery] = useState('')
 
   const getFilteredGenres = () => {
@@ -54,7 +53,7 @@ export default function GenreCombobox({setSelectedGenre}) {
 
   useEffect(() => {
     setSelectedGenre(selected.name.toLowerCase());
-  }, []);
+  }, [selected]);
 
   return (
     <div className="w-full">

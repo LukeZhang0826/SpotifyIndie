@@ -6,6 +6,8 @@ import { TbPlayerTrackNextFilled } from "react-icons/tb";
 import GenreCombobox from './combobox';
 import { CSSTransition } from 'react-transition-group';
 import MarketCombobox from './marketbox';
+import { IoSparklesSharp } from "react-icons/io5";
+import genres from './genres'
 
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
@@ -19,6 +21,7 @@ function App() {
   const [accessToken, setAccessToken] = useState("");
   const [albums, setAlbums] = useState([])
   const [noAlbums, setNoAlbums] = useState(false);
+  const [selected, setSelected] = useState(genres[Math.floor(Math.random() * 1380) + 1]);
 
   useEffect(() => {
     var authparameters = {
@@ -48,17 +51,10 @@ function App() {
   
     const headers = { Authorization: `Bearer ${accessToken}` };
   
-    let increment = 0;
     let retryDelay = 1000; // Start with a 1 second delay
-    const maxRetries = 5; // Maximum number of retries after hitting rate limit
+    const maxRetries = 3; // Maximum number of retries after hitting rate limit
   
     while (hasMore && popularityThreshold <= maxPopularity) {
-      console.log(firstAlbums.length)
-      increment += 1;
-      if (increment > 50) {
-        break;
-      }
-  
       let retries = 0; // Track the number of retries
       while (retries < maxRetries) {
         try {
@@ -93,7 +89,7 @@ function App() {
           console.log(firstAlbums.length)
   
           offset += limit;
-          if (searchData.artists.items.length < limit || firstAlbums.length > 200) {
+          if (searchData.artists.items.length < limit || firstAlbums.length > 100) {
             hasMore = false; // Stop if the current batch is smaller than the limit, indicating the end of the list
           } else if (smallArtists.length > 0) {
             popularityThreshold = 20;
@@ -123,10 +119,10 @@ function App() {
 
   async function search() {
     if (!accessToken) return; // Ensure access token is available
-
+  
     setAlbums([]);
     setNoAlbums(false);
-
+  
     const parameters = {
       method: "GET",
       headers: {
@@ -134,13 +130,13 @@ function App() {
         "Authorization": "Bearer " + accessToken,
       },
     };
-
-    // Initialize an empty map to track unique albums
-    const uniqueAlbumsMap = new Map();
-
+  
+    let artistAlbums = []; // Array to hold artist's albums
+    let otherAlbums = []; // Array to hold other albums
+  
     // Search for artists matching the search input
     const artistSearchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchInput)}&type=artist&limit=1&market=${selectedCountry}`;
-
+  
     try {
       const artistResponse = await fetch(artistSearchUrl, parameters);
       const artistData = await artistResponse.json();
@@ -149,33 +145,46 @@ function App() {
         const artistAlbumsUrl = `https://api.spotify.com/v1/artists/${artistID}/albums?include_groups=album&market=${selectedCountry}&limit=50`;
         const albumsResponse = await fetch(artistAlbumsUrl, parameters);
         const albumsData = await albumsResponse.json();
-        // Add artist's albums to the map to ensure uniqueness
-        albumsData.items.forEach(album => uniqueAlbumsMap.set(album.id, album));
+        // Store artist's albums separately
+        artistAlbums = albumsData.items;
       }
     } catch (error) {
       console.error("Error fetching artist albums:", error);
     }
+  
     // Directly search for albums matching the search input
     const albumSearchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchInput)}&type=album&limit=50&market=${selectedCountry}`;
-
+  
     try {
       const searchResponse = await fetch(albumSearchUrl, parameters);
       const searchData = await searchResponse.json();
-      // Add directly searched albums to the map to ensure uniqueness
-      searchData.albums.items.forEach(album => uniqueAlbumsMap.set(album.id, album));
+      // Store all matched albums, including possible duplicates from artist's albums
+      otherAlbums = searchData.albums.items;
     } catch (error) {
       console.error("Error fetching albums directly:", error);
     }
-
-    // Convert the map back to an array and sort all albums by release date (newest first)
-    const combinedAndUniqueAlbums = Array.from(uniqueAlbumsMap.values()).sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
-
+  
+    // Remove duplicates from otherAlbums that are already in artistAlbums based on album ID
+    const artistAlbumsIDs = new Set(artistAlbums.map(album => album.id));
+    otherAlbums = otherAlbums.filter(album => !artistAlbumsIDs.has(album.id));
+  
+    // Sort both arrays from newest to oldest
+    artistAlbums.sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+    otherAlbums.sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+  
+    // Combine the arrays, prioritizing artistAlbums
+    const combinedAndUniqueAlbums = [...artistAlbums, ...otherAlbums];
+  
     // Update your state or UI with the combined, unique, and sorted albums
     setAlbums(combinedAndUniqueAlbums);
-
+  
     if (combinedAndUniqueAlbums.length === 0) {
       setNoAlbums(true);
     }
+  }
+
+  const handleRandomGenre = () => {
+    setSelected(genres[Math.floor(Math.random() * 1380) + 1])
   }
 
   // Call the new function after the access token is set
@@ -189,49 +198,51 @@ function App() {
 
   // style={{ background: 'linear-gradient(to right, #1DB954CC, #17E9E0CC)'}}
 
-
   return (
     <div className="w-full min-h-screen bg-spotify-dark overflow-x-hidden" >
       <div className={`h-full ${isSidebarOpen ? "w-64" : "w-20"} bg-spotify-dark-gray duration-300 p-4 flex flex-col justify-between fixed opacity-100 z-40`}>
         <div>
           <div className="cursor-pointer flex justify-center" onClick={() => setIsSidebarOpen(!isSidebarOpen)} >
             <div className="flex items-center h-16 w-full justify-center">
-              <TbPlayerTrackNextFilled className={`w-10 h-10 text-spotify-green duration-300 hover:scale-110 ${isSidebarOpen ? "rotate-180" : ""}`}/>
+              <TbPlayerTrackNextFilled className={`w-10 h-10 text-spotify-green duration-300 hover:scale-110 hover:text-spotify-teal ${isSidebarOpen ? "rotate-180" : ""}`}/>
             </div>
           </div>
 
           <div className="mt-4 mb-6">
-            <p className="text-spotify-light font-bold">FILTERS</p>
-            <GenreCombobox setSelectedGenre={setSelectedGenre}/>
+            <p className={`text-spotify-light font-bold text-sm mb-1 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>FILTERS</p>
+            <GenreCombobox selected={selected} setSelected={setSelected} setSelectedGenre={setSelectedGenre}/>
           </div>
 
           <div className="mb-6">
-            <p className="text-spotify-light font-bold text-sm">MARKET</p>
+            <p className={`text-spotify-light font-bold text-sm mb-1 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>MARKET</p>
             <MarketCombobox setSelectedMarket={setSelectedCountry}/>
           </div>
 
           <div className="mb-6">
-            <p className="text-spotify-light font-bold text-sm">DESCRIPTION</p>
-            <p>
-              Find new albums from less popular artists in a specific genre. Don't know what to listen to? Let us surprise you!
-            </p>
+            <p className={`text-spotify-light font-bold text-sm mb-1 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>SURPRISE ME!</p>
+            <button className="bg-spotify-green rounded-2xl w-full h-9 duration-300 hover:bg-spotify-teal flex justify-center items-center" onClick={handleRandomGenre}>
+              <IoSparklesSharp className="text-spotify-dark"/>
+            </button>
           </div>
 
-          {/* <div className="mb-6">
-            <p className="text-spotify-light font-bold text-sm">SURPRISE ME!</p>
-            <GenreCombobox setSelectedGenre={setSelectedGenre}/>
-          </div> */}
+          <div className={`mb-6 h-28 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>
+            <p className="text-spotify-light font-bold text-sm mb-1">DESCRIPTION</p>
+            <p className="text-spotify-light-gray text-sm mb-1">Find new albums from less popular artists in a specific genre.</p>
+            <p className='text-spotify-light-gray text-sm'>Don't know what to listen to? Let us surprise you!</p>
+          </div>
 
         </div>
         <div className="flex items-center">
           <a href="https://www.spotify.com/" target="_blank" rel="noopener noreferrer" className="z-50 absolute w-12 h-12">
-            <FaSpotify className="w-12 h-12 text-spotify-green hover:scale-110 duration-300"/>
+            <FaSpotify className="w-12 h-12 text-spotify-green hover:scale-110 hover:text-spotify-teal duration-300"/>
           </a>
           <div className={`duration-300  z-0 ${isSidebarOpen ? "ml-[64px] opacity-100" : "ml-[0px] opacity-0"}`}>
-            <p className="text-[1.75rem]" style={{ background: 'linear-gradient(to right, #1DB954, #17E9E0)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'}}>
-              <span className="font-bold tracking-tighter">Spotify</span>
-              <span className="font-light">Indie</span>
-            </p>
+            <a href="https://www.spotify.com/" target="_blank" rel="noopener noreferrer">
+              <p className="text-[1.75rem] duration-300 hover:scale-110" style={{ background: 'linear-gradient(to right, #1DB954, #17E9E0)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'}}>
+                <span className="font-bold tracking-tighter">Spotify</span>
+                <span className="font-light">Indie</span>
+              </p>
+            </a>
           </div>
         </div>
       </div>
@@ -244,7 +255,7 @@ function App() {
               <BiSearch className="h-6 w-6 my-3 ml-5 mr-3"/>
               <input
                 className="w-full h-full bg-transparent outline-none"
-                placeholder="Find something new to listen to!"
+                placeholder="Find something new!"
                 type="input"
                 onFocus={() => setIsSearchFocused(true)}
                 onBlur={() => setIsSearchFocused(false)}
@@ -258,7 +269,7 @@ function App() {
             </div>
 
             <div className="relative w-full mx-auto h-full">
-              <div className="absolute flex items-center justify-center w-full h-96">
+              <div className="absolute flex items-center justify-center w-full h-32">
                 <CSSTransition in={albums.length === 0 && !noAlbums} timeout={500} classNames="fade" unmountOnExit>
                   <div className="loader-dots block relative w-20 h-3 mt-2">
                     <div className="absolute top-0 w-2 h-2 rounded-full bg-spotify-green"></div>
@@ -279,7 +290,7 @@ function App() {
 
           <CSSTransition in={albums.length > 0} timeout={500} classNames="fade" unmountOnExit>
             <div className="py-6">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 overflow-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 overflow-auto z-10">
                 {albums.map((album, index) => {
                   return (
                     // Grid item
@@ -288,7 +299,7 @@ function App() {
 
                         <div className="absolute inset-0 flex justify-center items-center bg-spotify-dark-gray-transparent opacity-0 hover:opacity-100 duration-300">
                           <a href={album?.external_urls?.spotify} target="_blank" rel="noopener noreferrer">
-                            <div className="rounded-full h-14 w-14 sm:h-24 sm:w-24 bg-spotify-green flex items-center justify-center hover:scale-110 duration-300">
+                            <div className="rounded-full h-14 w-14 sm:h-24 sm:w-24 bg-spotify-green hover:bg-spotify-teal flex items-center justify-center hover:scale-110 duration-300">
                               <FaPlay className="ml-1 sm:ml-2 h-6 w-6 sm:h-10 sm:w-10"/>
                             </div>
                           </a>
