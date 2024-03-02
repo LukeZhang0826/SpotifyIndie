@@ -63,6 +63,8 @@ function App() {
   const [albums, setAlbums] = useState([])
   const [noAlbums, setNoAlbums] = useState(false);
   const [selected, setSelected] = useState(genres[Math.floor(Math.random() * 1380) + 1]);
+  const [albumsCache, setAlbumsCache] = useState([]);
+  const [cacheIndex, setCacheIndex] = useState(0);
 
   useEffect(() => {
     var authparameters = {
@@ -85,35 +87,36 @@ function App() {
     let offset = 0;
     const limit = 50; // Max number of artists to fetch in one request
     let artistsCollected = []; // Store collected artists here
-    const popularityThreshold = 50; // Only fetch artists with popularity 50 or below
+    let popularityThreshold = 25; // Only fetch artists with popularity 50 or below
     const headers = { Authorization: `Bearer ${accessToken}` };
     const requestDelay = 0; // Delay between requests to prevent 429 errors
     const queue = new RequestQueue(requestDelay);
   
     // Keep fetching artists until we have 100 or no more artists meet the criteria
-    while (artistsCollected.length < 100 && offset < 1000) {
+    while (artistsCollected.length < 24 && offset < 1000) {
       const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=genre:"${selectedGenre}"&type=artist&limit=${limit}&offset=${offset}&market=${selectedCountry}`, { headers });
-  
       if (searchResponse.status === 429) {
         console.error('Rate limit exceeded');
         break; // If rate limited, exit the loop
-      }
+      } 
   
       const searchData = await searchResponse.json();
       let smallArtists = searchData.artists.items.filter(artist => artist.popularity <= popularityThreshold);
   
-      artistsCollected = [...artistsCollected, ...smallArtists.slice(0, 100 - artistsCollected.length)];
+      artistsCollected = [...artistsCollected, ...smallArtists];
       offset += limit;
 
-      console.log(artistsCollected.length)
-  
-      if (artistsCollected.length >= 100 ) {
+      if (artistsCollected.length === 0) {
+        popularityThreshold += 5; 
+      }
+
+      if (artistsCollected.length >= 24 ) {
         break;
       }
     }
   
     let firstAlbums = [];
-    artistsCollected.forEach(artist => {
+    artistsCollected.slice(0, artistsCollected.length > 24 ? 24 : artistsCollected.length).forEach(artist => {
       queue.enqueue(async () => {
         const albumsResponse = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/albums?market=${selectedCountry}&limit=1&include_groups=album`, { headers });
         if (albumsResponse.status === 429) {
@@ -128,11 +131,20 @@ function App() {
     });
   
     await queue.whenEmpty();
+
     firstAlbums.sort((a, b) => {
       return new Date(b.release_date) - new Date(a.release_date);
     });
 
     setAlbums(firstAlbums);
+    setAlbumsCache(artistsCollected);
+
+    if (firstAlbums.length === 0) {
+      setNoAlbums(true);
+      setAlbumsCache([]);
+    }
+
+    setCacheIndex(0);
   }
 
   async function search() {
@@ -158,7 +170,6 @@ function App() {
     try {
       const artistResponse = await fetch(artistSearchUrl, parameters);
       const artistData = await artistResponse.json();
-      console.log(artistData)
       if (artistData.artists.items.length > 0) {
         const artistID = artistData.artists.items[0].id;
         const artistAlbumsUrl = `https://api.spotify.com/v1/artists/${artistID}/albums?include_groups=album&market=${selectedCountry}&limit=50`;
@@ -196,11 +207,15 @@ function App() {
     const combinedAndUniqueAlbums = [...artistAlbums, ...otherAlbums];
   
     // Update your state or UI with the combined, unique, and sorted albums
-    setAlbums(combinedAndUniqueAlbums);
+    setAlbums(combinedAndUniqueAlbums.slice(0, combinedAndUniqueAlbums.length > 24 ? 24 : combinedAndUniqueAlbums.length));
+    setAlbumsCache(combinedAndUniqueAlbums);
   
     if (combinedAndUniqueAlbums.length === 0) {
       setNoAlbums(true);
+      setAlbumsCache([]);
     }
+
+    setCacheIndex(0);
   }
 
   const handleRandomGenre = () => {
@@ -229,7 +244,7 @@ function App() {
           </div>
 
           <div className="mt-4 mb-6">
-            <p className={`text-spotify-light font-bold text-sm mb-1 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>FILTERS</p>
+            <p className={`text-spotify-light font-bold text-sm mb-1 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>GENRES</p>
             <GenreCombobox selected={selected} setSelected={setSelected} setSelectedGenre={setSelectedGenre}/>
           </div>
 
@@ -250,6 +265,16 @@ function App() {
             <p className="text-spotify-light-gray text-sm mb-1">Find new albums from less popular artists in a specific genre.</p>
             <p className='text-spotify-light-gray text-sm'>Don't know what to listen to? Let us surprise you!</p>
           </div>
+
+          {/* <div className={`mb-6 h-28 duration-200 ${isSidebarOpen ? "opacity-100" : "ml-[-64px] opacity-0"}`}>
+            <p className="text-spotify-light font-bold text-sm mb-1">PAGE</p>
+            <button className="bg-spotify-green rounded-2xl w-full h-9 duration-300 hover:bg-spotify-teal flex justify-center items-center">
+              right
+            </button>
+            <button className="bg-spotify-green rounded-2xl w-full h-9 duration-300 hover:bg-spotify-teal flex justify-center items-center">
+              left
+            </button>
+          </div> */}
 
         </div>
         <div className="flex items-center">
@@ -360,3 +385,7 @@ function App() {
 }
 
 export default App
+
+
+// add popularity slide
+// add cache for albums to get new set of albums
