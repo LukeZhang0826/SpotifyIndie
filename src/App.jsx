@@ -207,7 +207,8 @@ function App() {
     const combinedAndUniqueAlbums = [...artistAlbums, ...otherAlbums];
   
     // Update your state or UI with the combined, unique, and sorted albums
-    setAlbums(combinedAndUniqueAlbums.slice(0, combinedAndUniqueAlbums.length > 24 ? 24 : combinedAndUniqueAlbums.length));
+    // setAlbums(combinedAndUniqueAlbums.slice(0, combinedAndUniqueAlbums.length > 24 ? 24 : combinedAndUniqueAlbums.length));
+    setAlbums(combinedAndUniqueAlbums);
     setAlbumsCache(combinedAndUniqueAlbums);
   
     if (combinedAndUniqueAlbums.length === 0) {
