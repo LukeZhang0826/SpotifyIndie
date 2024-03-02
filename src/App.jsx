@@ -8,6 +8,7 @@ import { CSSTransition } from 'react-transition-group';
 import MarketCombobox from './marketbox';
 import { IoSparklesSharp } from "react-icons/io5";
 import genres from './genres'
+import { Analytics } from "@vercel/analytics/react"
 
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
