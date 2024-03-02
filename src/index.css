@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+    font-family: 'Spotify-Bold';
+    src: url('./GothamMedium.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Spotify-Regular';
+    src: url('./GothamBold.ttf') format('truetype');
+    font-weight: Bold;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Spotify-Light';
+    src: url('./GothamLight.ttf') format('truetype');
+    font-weight: light;
+    font-style: normal;
+}
+
+.spotify-font-bold {
+    font-family: 'Spotify-Bold', sans-serif;
+}
+
+.spotify-font-regular {
+    font-family: 'Spotify-Regular', sans-serif;
+}   
+
+.spotify-font-light {
+    font-family: 'Spotify-Light', sans-serif;
+}
+
+.gradient-text {
+    background: linear-gradient(to right, #1DB954, #17E9E0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .gradient-svg {
+    fill: url(#spotify-gradient);
+  }
+
+  .glow-on-hover:hover {
+    text-shadow: 0 0 5px #fff, 0 0 7px #ccc, 0 0 9px rgba(29, 185, 84, 0.5), 0 0 11px rgba(29, 185, 84, 0.5);
+  }
+
+
+  .loader-dots div {
+    animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+.loader-dots div:nth-child(1) {
+    left: 8px;
+    animation: loader-dots1 0.6s infinite;
+}
+.loader-dots div:nth-child(2) {
+    left: 8px;
+    animation: loader-dots2 0.6s infinite;
+}
+.loader-dots div:nth-child(3) {
+    left: 32px;
+    animation: loader-dots2 0.6s infinite;
+}
+.loader-dots div:nth-child(4) {
+    left: 56px;
+    animation: loader-dots3 0.6s infinite;
+}
+@keyframes loader-dots1 {
+    0% {
+        transform: scale(0);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+@keyframes loader-dots3 {
+    0% {
+        transform: scale(1);
+    }
+    100% {
+        transform: scale(0);
+    }
+}
+@keyframes loader-dots2 {
+    0% {
+        transform: translate(0, 0);
+    }
+    100% {
+        transform: translate(24px, 0);
+    }
+}
+
+/* Enter phase start */
+.fade-enter {
+    opacity: 0;
+  }
+  
+  /* Enter phase end */
+  .fade-enter.fade-enter-active {
+    opacity: 1;
+    transition: opacity 500ms ease-in;
+  }
+  
+  /* Exit phase start */
+  .fade-exit {
+    opacity: 1;
+  }
+  
+  /* Exit phase end */
+  .fade-exit.fade-exit-active {
+    opacity: 0;
+    transition: opacity 500ms ease-in;
+  }
+
+  .combobox-options::-webkit-scrollbar {
+    display: none;
+  }
+
+  .combobox-options {
+    scrollbar-width: none;
+  }
