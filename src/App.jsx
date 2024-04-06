@@ -9,9 +9,14 @@ import MarketCombobox from './marketbox';
 import { IoSparklesSharp } from "react-icons/io5";
 import genres from './genres'
 import { Analytics } from "@vercel/analytics/react"
+import mixpanel from 'mixpanel-browser';
 
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
+
+mixpanel.init(import.meta.env.VITE_MIXPANEL_TOKEN, { debug: true });
+
+
 
 class RequestQueue {
   constructor(delay) {
@@ -81,6 +86,15 @@ function App() {
         setAccessToken(data.access_token)
       })
   }, [])
+
+
+  useEffect(() => {
+    mixpanel.track('Page View', {
+      'Page Name': 'Homepage',
+      'Timestamp': new Date().toISOString()
+    }); 
+  }, []);
+
 
   async function fetchLessPopularArtistsFirstAlbums() {
     if (!accessToken) return;
@@ -218,6 +232,11 @@ function App() {
     }
 
     setCacheIndex(0);
+
+    mixpanel.track('Search', {
+      'Search Query': searchInput,
+      'Timestamp': new Date().toISOString()
+    });
   }
 
   const handleRandomGenre = () => {
@@ -230,7 +249,12 @@ function App() {
       setAlbums([]);
       setNoAlbums(false);
       fetchLessPopularArtistsFirstAlbums();
+      mixpanel.track('Genre Selected', {
+        'Genre': selectedGenre,
+        'Timestamp': new Date().toISOString()
+      });
     }
+
   }, [accessToken, selectedGenre, selectedCountry]);
 
   // style={{ background: 'linear-gradient(to right, #1DB954CC, #17E9E0CC)'}}
