@@ -37,8 +37,14 @@ class RequestQueue {
     if (this.queue.length > 0) {
       this.isProcessing = true;
       const task = this.queue.shift();
-      await task();
-      setTimeout(() => this.processQueue(), this.delay);
+      try {
+        await task();
+      } catch (err) {
+        console.error('Queue task failed:', err);
+      } finally {
+        // Always continue the queue, even if a task threw, so whenEmpty() resolves.
+        setTimeout(() => this.processQueue(), this.delay);
+      }
     } else {
       this.isProcessing = false;
       if (this.processingCompleteResolver) {
@@ -68,23 +74,36 @@ function App() {
   const [accessToken, setAccessToken] = useState("");
   const [albums, setAlbums] = useState([])
   const [noAlbums, setNoAlbums] = useState(false);
-  const [selected, setSelected] = useState(genres[Math.floor(Math.random() * 1380) + 1]);
+  const [selected, setSelected] = useState(genres[Math.floor(Math.random() * genres.length)]);
   const [albumsCache, setAlbumsCache] = useState([]);
   const [cacheIndex, setCacheIndex] = useState(0);
 
   useEffect(() => {
-    var authparameters = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials&client_id=" + CLIENT_ID + "&client_secret=" + CLIENT_SECRET
+    let timeoutId;
+
+    async function fetchToken() {
+      const authparameters = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials&client_id=" + CLIENT_ID + "&client_secret=" + CLIENT_SECRET
+      }
+      try {
+        const response = await fetch("https://accounts.spotify.com/api/token", authparameters);
+        const data = await response.json();
+        setAccessToken(data.access_token);
+        // Refresh ~1 min before expiry (expires_in is in seconds) so requests never 401.
+        const refreshInMs = ((data.expires_in ?? 3600) - 60) * 1000;
+        timeoutId = setTimeout(fetchToken, refreshInMs);
+      } catch (error) {
+        console.error('Failed to fetch Spotify access token:', error);
+        timeoutId = setTimeout(fetchToken, 30000); // Retry shortly on failure.
+      }
     }
-    fetch("https://accounts.spotify.com/api/token", authparameters)
-      .then(response => response.json())
-      .then(data => {
-        setAccessToken(data.access_token)
-      })
+
+    fetchToken();
+    return () => clearTimeout(timeoutId);
   }, [])
 
 
@@ -98,68 +117,82 @@ function App() {
 
   async function fetchLessPopularArtistsFirstAlbums() {
     if (!accessToken) return;
-  
-    let offset = 0;
+
     const limit = 50; // Max number of artists to fetch in one request
-    let artistsCollected = []; // Store collected artists here
-    let popularityThreshold = 25; // Only fetch artists with popularity 50 or below
     const headers = { Authorization: `Bearer ${accessToken}` };
     const requestDelay = 0; // Delay between requests to prevent 429 errors
     const queue = new RequestQueue(requestDelay);
-  
-    // Keep fetching artists until we have 100 or no more artists meet the criteria
-    while (artistsCollected.length < 24 && offset < 1000) {
-      const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=genre:"${selectedGenre}"&type=artist&limit=${limit}&offset=${offset}&market=${selectedCountry}`, { headers });
-      if (searchResponse.status === 429) {
-        console.error('Rate limit exceeded');
-        break; // If rate limited, exit the loop
-      } 
-  
-      const searchData = await searchResponse.json();
-      let smallArtists = searchData.artists.items.filter(artist => artist.popularity <= popularityThreshold);
-  
-      artistsCollected = [...artistsCollected, ...smallArtists];
-      offset += limit;
 
-      if (artistsCollected.length === 0) {
-        popularityThreshold += 5; 
-      }
-
-      if (artistsCollected.length >= 24 ) {
-        break;
-      }
-    }
-  
-    let firstAlbums = [];
-    artistsCollected.slice(0, artistsCollected.length > 24 ? 24 : artistsCollected.length).forEach(artist => {
-      queue.enqueue(async () => {
-        const albumsResponse = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/albums?market=${selectedCountry}&limit=1&include_groups=album`, { headers });
-        if (albumsResponse.status === 429) {
+    try {
+      // Collect every artist Spotify surfaces for this genre (search caps at ~100).
+      let artistsCollected = [];
+      for (let offset = 0; offset < 1000; offset += limit) {
+        const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=genre:"${selectedGenre}"&type=artist&limit=${limit}&offset=${offset}&market=${selectedCountry}`, { headers });
+        if (searchResponse.status === 429) {
           console.error('Rate limit exceeded');
-          return;
+          break; // If rate limited, exit the loop
         }
-        const albumsData = await albumsResponse.json();
-        if (albumsData.items.length > 0) {
-          firstAlbums.push(albumsData.items[0]); 
-        }
+        if (!searchResponse.ok) break;
+
+        const searchData = await searchResponse.json();
+        const items = searchData.artists?.items ?? [];
+        artistsCollected.push(...items);
+
+        if (items.length < limit) break; // No more results to page through
+      }
+
+      // Spotify's genre search now returns only the most popular artists, so
+      // "less popular" is relative: keep the least popular ones from the result set.
+      artistsCollected.sort((a, b) => (a.popularity ?? 0) - (b.popularity ?? 0));
+      artistsCollected = artistsCollected.slice(0, 24);
+
+      let firstAlbums = [];
+      artistsCollected.forEach(artist => {
+        queue.enqueue(async () => {
+          const albumsResponse = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/albums?market=${selectedCountry}&limit=1&include_groups=album`, { headers });
+          if (!albumsResponse.ok) {
+            if (albumsResponse.status === 429) console.error('Rate limit exceeded');
+            return;
+          }
+          const albumsData = await albumsResponse.json();
+          if ((albumsData.items?.length ?? 0) > 0) {
+            firstAlbums.push(albumsData.items[0]);
+          }
+        });
       });
-    });
-  
-    await queue.whenEmpty();
 
-    firstAlbums.sort((a, b) => {
-      return new Date(b.release_date) - new Date(a.release_date);
-    });
+      await queue.whenEmpty();
 
-    setAlbums(firstAlbums);
-    setAlbumsCache(artistsCollected);
+      // Fallback: Spotify's genre artist-search returns only ghost artists (no
+      // album releases) for many genres, e.g. gospel/lounge. When the artist
+      // path yields nothing, fall back to a free-text album search by genre name
+      // — the same mechanism the search bar uses — so the user always gets results.
+      if (firstAlbums.length === 0) {
+        const fallbackResponse = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(selectedGenre)}&type=album&limit=50&market=${selectedCountry}`, { headers });
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          firstAlbums = fallbackData.albums?.items ?? [];
+        }
+      }
 
-    if (firstAlbums.length === 0) {
-      setNoAlbums(true);
-      setAlbumsCache([]);
+      firstAlbums.sort((a, b) => {
+        return new Date(b.release_date) - new Date(a.release_date);
+      });
+
+      setAlbums(firstAlbums);
+      setAlbumsCache(artistsCollected);
+
+      if (firstAlbums.length === 0) {
+        setNoAlbums(true);
+        setAlbumsCache([]);
+      }
+
+      setCacheIndex(0);
+    } catch (error) {
+      console.error('Error fetching albums for genre:', error);
+      setAlbums([]);
+      setNoAlbums(true); // Surface the failure instead of spinning forever.
     }
-
-    setCacheIndex(0);
   }
 
   async function search() {
@@ -239,8 +272,37 @@ function App() {
     });
   }
 
-  const handleRandomGenre = () => {
-    setSelected(genres[Math.floor(Math.random() * 1380) + 1])
+  const handleRandomGenre = async () => {
+    if (!accessToken) return;
+
+    // Most of Spotify's micro-genres no longer return any artists, so probe
+    // random genres until one resolves before committing to it.
+    setAlbums([]);
+    setNoAlbums(false);
+
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const candidate = genres[Math.floor(Math.random() * genres.length)];
+      try {
+        const response = await fetch(`https://api.spotify.com/v1/search?q=genre:"${candidate.name.toLowerCase()}"&type=artist&limit=1&market=${selectedCountry}`, { headers });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if ((data.artists?.total ?? 0) > 0) {
+          if (candidate.name.toLowerCase() === selectedGenre) {
+            // Same genre as the current one: the effects won't refire, so fetch directly.
+            fetchLessPopularArtistsFirstAlbums();
+          } else {
+            setSelected(candidate); // Flows through the combobox/effect into a fetch.
+          }
+          return;
+        }
+      } catch (error) {
+        console.error('Surprise Me probe failed:', error);
+      }
+    }
+
+    // Nothing resolved within the attempt budget.
+    setNoAlbums(true);
   }
 
   // Call the new function after the access token is set
